@@ -1,4 +1,4 @@
-# FlowFinder
+# flowfinder
 
 A new Flutter project.
 

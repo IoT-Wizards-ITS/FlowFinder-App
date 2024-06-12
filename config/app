@@ -1,0 +1,15 @@
+server {
+    listen 80;
+    server_name 103.127.137.208;
+
+    location / {
+        include proxy_params;
+        proxy_pass http://unix:/home/flowfinder/ff_server/app.sock;
+    }
+
+
+    location /static  {
+        include  /etc/nginx/mime.types;
+        root /home/harry/myFlaskApp/;
+    }
+}
