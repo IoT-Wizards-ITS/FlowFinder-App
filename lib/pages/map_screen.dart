@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:flowfinder/utils/api.dart';
-import 'package:flutter_map_tappable_polyline/flutter_map_tappable_polyline.dart';
 
 class MapScreen extends StatefulWidget {
   const MapScreen({super.key});
@@ -26,7 +25,6 @@ class _MapScreenState extends State<MapScreen> {
 
   final defaultPoint = const LatLng(-7.2816569, 112.7951051);
 
-  List listOfPoints = [];
   List<LatLng> regularRoutePoints = [];
   List<LatLng> floodRoutePoints = [];
   List<Marker> markers = [];
@@ -143,6 +141,17 @@ class _MapScreenState extends State<MapScreen> {
     }
   }
 
+  void _refreshState() {
+    setState(() {
+      markers.clear();
+      regularRoutePoints.clear();
+      floodRoutePoints.clear();
+      avoidRoutePoints.clear();
+      avoidStreetNames.clear();
+    });
+    fetchAvoidStreets();
+  }
+
   final MapController mapController = MapController();
 
   void _handleTap(LatLng latLng) {
@@ -197,12 +206,28 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   void _showRouteInfo(String routeType, double distance, String duration) {
+    double distanceInKm = distance / 1000;  
+    double durationInSeconds = double.parse(duration);
+    String formattedDuration;
+    if (durationInSeconds >= 3600) {
+      int hours = (durationInSeconds / 3600).floor();
+      int minutes = ((durationInSeconds % 3600) / 60).floor();
+      formattedDuration = '$hours h $minutes m';
+    } else if (durationInSeconds >= 60) {
+      int minutes = (durationInSeconds / 60).floor();
+      int seconds = (durationInSeconds % 60).floor();
+      formattedDuration = '$minutes m $seconds s';
+    } else {
+      formattedDuration = '${durationInSeconds.toStringAsFixed(0)} s';
+    } 
+
     showDialog(
       context: context,
       builder: (context) {
         return AlertDialog(
           title: Text("$routeType Route Info"),
-          content: Text("Distance: ${distance.toStringAsFixed(2)} meters\nDuration: ${duration}s"),
+          content: Text(
+            "Distance: ${distanceInKm.toStringAsFixed(2)} km\nDuration: $formattedDuration"),
           actions: [
             TextButton(
               onPressed: () {
@@ -216,18 +241,28 @@ class _MapScreenState extends State<MapScreen> {
     );
   }
 
-  Widget _buildPolyline({required List<LatLng> points, required Color color, required double strokeWidth, required String routeType, required double distance, required String duration}) {
-    return TappablePolylineLayer(
-      polylineCulling: false,
-      polylines: [
-        TaggedPolyline(
-          points: points,
-          color: color,
-          strokeWidth: strokeWidth,
-          tag: routeType,
-        )
-      ],
-      onTap: (p0, tapPosition) => _showRouteInfo(routeType, distance, duration)
+  void _showFloodInfoDialog() {
+    showDialog(
+      context: context,
+      builder: (context) {
+        return AlertDialog(
+          title: const Text("Flood Information"),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: avoidStreetNames.map(
+              (name) => Text(name)
+            ).toList(),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.pop(context);
+              },
+              child: const Text("OK"),
+            ),
+          ],
+        );
+      },
     );
   }
 
@@ -252,86 +287,62 @@ class _MapScreenState extends State<MapScreen> {
                 markers: markers,
               ),
               if (avoidRoutePoints.isNotEmpty)
-                _buildPolyline(
-                  points: avoidRoutePoints,
-                  color: Colors.red,
-                  strokeWidth: 10,
-                  routeType: 'Avoided',
-                  distance: 0,
-                  duration: '',
+                PolylineLayer(
+                  polylines: [
+                    Polyline(
+                      points: avoidRoutePoints,
+                      color: Colors.red,
+                      strokeWidth: 10,
+                    ),
+                  ],
                 ),
-              _buildPolyline(
-                points: regularRoutePoints,
-                color: Colors.black,
-                strokeWidth: 5,
-                routeType: 'Regular',
-                distance: regularRouteDistance,
-                duration: regularRouteDuration,
+              PolylineLayer(
+                polylines: [
+                  Polyline(
+                    points: regularRoutePoints,
+                    color: Colors.black,
+                    strokeWidth: 5,
+                  ),
+                  if (floodRoutePoints.isNotEmpty)
+                    Polyline(
+                      points: floodRoutePoints,
+                      color: Colors.blue,
+                      strokeWidth: 5,
+                    ),
+                ],
               ),
-              if (floodRoutePoints.isNotEmpty)
-                _buildPolyline(
-                  points: floodRoutePoints,
-                  color: Colors.blue,
-                  strokeWidth: 5,
-                  routeType: 'Flood',
-                  distance: floodRouteDistance,
-                  duration: floodRouteDuration,
-                ),
-              
             ],
           ),
-          Visibility(
-            visible: isLoading,
-            child: Container(
-              color: const Color.fromARGB(1, 66, 72, 116).withOpacity(0.7),
+          if (isLoading)
+            Center(
               child: BackdropFilter(
                 filter: ImageFilter.blur(sigmaX: 5, sigmaY: 5),
-                child: const Center(
-                  child: CircularProgressIndicator(
-                    color: Colors.white,
-                  ),
-                ),
+                child: const CircularProgressIndicator(),
               ),
             ),
-          ),
           Positioned(
-            top: MediaQuery.of(context).padding.top + 20.0,
-            left: MediaQuery.of(context).size.width / 2 - 110,
+            top: MediaQuery.of(context).padding.top + 10.0,
+            left: 0.0,
+            right: 0.0,
             child: Align(
-              child: TextButton(
-                onPressed: () {
-                  if (markers.isEmpty) {
-                    showDialog(
-                      context: context,
-                      builder: (context) {
-                        return AlertDialog(
-                          title: const Text("Alert"),
-                          content: const Text("Please add two markers"),
-                          actions: [
-                            TextButton(
-                              onPressed: () {
-                                Navigator.pop(context);
-                              },
-                              child: const Text("OK"),
-                            ),
-                          ],
-                        );
-                      },
-                    );
-                  } else {
-                    setState(() {
-                      markers = [];
-                      regularRoutePoints = [];
-                      floodRoutePoints = [];
-                    });
-                  }
+              alignment: Alignment.topCenter,
+              child: GestureDetector(
+                onTap: () {
+                  setState(() {
+                    markers.clear();
+                    regularRoutePoints = [];
+                    floodRoutePoints = [];
+                    avoidRoutePoints = [];
+                    avoidStreetNames = [];
+                  });
                 },
                 child: Container(
                   width: 200,
                   height: 50,
                   decoration: BoxDecoration(
-                      color: const Color.fromARGB(255, 66, 72, 116).withOpacity(0.8),
-                      borderRadius: BorderRadius.circular(10)),
+                    color: const Color.fromARGB(255, 66, 72, 116),
+                    borderRadius: BorderRadius.circular(10),
+                  ),
                   child: Center(
                     child: Text(
                       markers.isEmpty ? "No markers" : "Clear markers",
@@ -342,11 +353,63 @@ class _MapScreenState extends State<MapScreen> {
               ),
             ),
           ),
+          Positioned(
+            top: MediaQuery.of(context).padding.bottom + 790.0,
+            left: MediaQuery.of(context).size.width / 2 - 50,
+            child: Align(
+              child: ElevatedButton(
+                onPressed: _refreshState,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color.fromARGB(255, 66, 72, 116),
+                ),
+                child: const Text(
+                  "Refresh",
+                  style: TextStyle(color: Colors.white),
+                ),
+              ),
+            ),
+          ),
         ],
       ),
       floatingActionButton: Column(
         mainAxisAlignment: MainAxisAlignment.end,
         children: [
+          FloatingActionButton(
+            backgroundColor: const Color.fromARGB(255, 66, 72, 116),
+            onPressed: () {
+              if (floodRoutePoints.isNotEmpty) {
+                _showRouteInfo('Regular', regularRouteDistance, regularRouteDuration);
+                _showRouteInfo('Flood', floodRouteDistance, floodRouteDuration);
+              } else if (regularRoutePoints.isNotEmpty) {
+                _showRouteInfo('Regular', regularRouteDistance, regularRouteDuration);
+              } else {
+                showDialog(
+                  context: context,
+                  builder: (context) {
+                    return AlertDialog(
+                      title: const Text("Error"),
+                      content: const Text("Please select two points first"),
+                      actions: [
+                        TextButton(
+                          onPressed: () {
+                            Navigator.pop(context);
+                          },
+                          child: const Text("OK"),
+                        ),
+                      ],
+                    );
+                  },
+                );
+              }
+            },
+            child: const Icon(Icons.info_outline, color: Colors.white,),
+          ),
+          const SizedBox(height: 10),
+          FloatingActionButton(
+            backgroundColor: const Color.fromARGB(255, 66, 72, 116),
+            onPressed: _showFloodInfoDialog,
+            child: const Icon(Icons.warning, color: Colors.white),
+          ),
           const SizedBox(height: 10),
           FloatingActionButton(
             backgroundColor: const Color.fromARGB(255, 66, 72, 116),
