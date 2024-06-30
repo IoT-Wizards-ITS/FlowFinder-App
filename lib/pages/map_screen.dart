@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:flowfinder/utils/api.dart';
+import 'package:flowfinder/pages/history_screen.dart';
 
 class MapScreen extends StatefulWidget {
   const MapScreen({super.key});
@@ -28,7 +29,7 @@ class _MapScreenState extends State<MapScreen> {
   List<LatLng> regularRoutePoints = [];
   List<LatLng> floodRoutePoints = [];
   List<Marker> markers = [];
-  List<LatLng> avoidRoutePoints = [];
+  List<List<LatLng>> avoidRoutePoints = [];
   List<String> avoidStreetNames = [];
 
   double regularRouteDistance = 0;
@@ -42,45 +43,52 @@ class _MapScreenState extends State<MapScreen> {
     });
 
     try {
-      final response = await fetchData(
-        'http://103.127.137.208/api/avoid_streets'
-      );
+      final response = await fetchData('http://103.127.137.208/api/avoid_streets');
 
       if (response['avoid_streets'] != null) {
         List<dynamic> avoidStreets = response['avoid_streets'];
+        List<List<LatLng>> tempRoutePoints = [];
+        List<String> tempStreetNames = [];
+
+        for (var street in avoidStreets) {
+          List<dynamic> coords = street['coords'];
+          String streetName = street['name'];
+
+          List<LatLng> streetPoints = coords.map<LatLng>((coord) => LatLng(coord[1], coord[0])).toList();
+          tempRoutePoints.add(streetPoints);
+          tempStreetNames.add(streetName);
+        }
+
         setState(() {
-          avoidRoutePoints = [];
-          avoidStreetNames = [];
-          for (var street in avoidStreets) {
-            List<dynamic> coords = street['coords'];
-            String streetName = street['name'];
-
-            avoidRoutePoints.addAll(
-              coords.map<LatLng>((coord) => LatLng(coord[1], coord[0])).toList(),
-            );
-
-            avoidStreetNames.add(streetName);
-          }
+          avoidRoutePoints = tempRoutePoints;
+          avoidStreetNames = tempStreetNames;
+          isLoading = false;
+        });
+      } else {
+        setState(() {
+          isLoading = false;
         });
       }
-      setState(() {
-        isLoading = false;
-      });
     } catch (e) {
       setState(() {
         isLoading = false;
       });
-      AlertDialog(
-        title: const Text("Error"),
-        content: Text(e.toString()),
-        actions: [
-          TextButton(
-            onPressed: () {
-              Navigator.pop(context);
-            },
-            child: const Text("OK"),
-          ),
-        ],
+      showDialog(
+        context: context,
+        builder: (context) {
+          return AlertDialog(
+            title: const Text("Error"),
+            content: Text(e.toString()),
+            actions: [
+              TextButton(
+                onPressed: () {
+                  Navigator.pop(context);
+                },
+                child: const Text("OK"),
+              ),
+            ],
+          );
+        },
       );
     }
   }
@@ -92,8 +100,7 @@ class _MapScreenState extends State<MapScreen> {
 
     try {
       final response = await fetchData(
-        'http://103.127.137.208/api/route?lat1=${coordOrigin.latitude}&long1=${coordOrigin.longitude}&lat2=${coordDestination.latitude}&long2=${coordDestination.longitude}'
-      );
+          'http://103.127.137.208/api/route?lat1=${coordOrigin.latitude}&long1=${coordOrigin.longitude}&lat2=${coordDestination.latitude}&long2=${coordDestination.longitude}');
 
       if (response['regular_route'] != null) {
         final regularRoute = response['regular_route']['features'][0]['geometry']['coordinates'];
@@ -206,9 +213,10 @@ class _MapScreenState extends State<MapScreen> {
   }
 
   void _showRouteInfo(String routeType, double distance, String duration) {
-    double distanceInKm = distance / 1000;  
+    double distanceInKm = distance / 1000;
     double durationInSeconds = double.parse(duration);
     String formattedDuration;
+
     if (durationInSeconds >= 3600) {
       int hours = (durationInSeconds / 3600).floor();
       int minutes = ((durationInSeconds % 3600) / 60).floor();
@@ -219,15 +227,14 @@ class _MapScreenState extends State<MapScreen> {
       formattedDuration = '$minutes m $seconds s';
     } else {
       formattedDuration = '${durationInSeconds.toStringAsFixed(0)} s';
-    } 
+    }
 
     showDialog(
       context: context,
       builder: (context) {
         return AlertDialog(
           title: Text("$routeType Route Info"),
-          content: Text(
-            "Distance: ${distanceInKm.toStringAsFixed(2)} km\nDuration: $formattedDuration"),
+          content: Text("Distance: ${distanceInKm.toStringAsFixed(2)} km\nDuration: $formattedDuration"),
           actions: [
             TextButton(
               onPressed: () {
@@ -249,9 +256,17 @@ class _MapScreenState extends State<MapScreen> {
           title: const Text("Flood Information"),
           content: Column(
             mainAxisSize: MainAxisSize.min,
-            children: avoidStreetNames.map(
-              (name) => Text(name)
-            ).toList(),
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: avoidStreetNames
+                .map(
+                  (name) => Row(
+                    children: [
+                      const Text('• ', style: TextStyle(fontSize: 16)),
+                      Expanded(child: Text(name, style: const TextStyle(fontSize: 16))),
+                    ],
+                  ),
+                )
+                .toList(),
           ),
           actions: [
             TextButton(
@@ -288,13 +303,9 @@ class _MapScreenState extends State<MapScreen> {
               ),
               if (avoidRoutePoints.isNotEmpty)
                 PolylineLayer(
-                  polylines: [
-                    Polyline(
-                      points: avoidRoutePoints,
-                      color: Colors.red,
-                      strokeWidth: 10,
-                    ),
-                  ],
+                  polylines: avoidRoutePoints
+                      .map((route) => Polyline(points: route, color: Colors.red, strokeWidth: 10))
+                      .toList(),
                 ),
               PolylineLayer(
                 polylines: [
@@ -377,6 +388,17 @@ class _MapScreenState extends State<MapScreen> {
           FloatingActionButton(
             backgroundColor: const Color.fromARGB(255, 66, 72, 116),
             onPressed: () {
+              Navigator.push(
+                context,
+                MaterialPageRoute(builder: (context) => const HistoryScreen()),
+              );
+            },
+            child: const Icon(Icons.history, color: Colors.white),
+          ),
+          const SizedBox(height: 10),
+          FloatingActionButton(
+            backgroundColor: const Color.fromARGB(255, 66, 72, 116),
+            onPressed: () {
               if (floodRoutePoints.isNotEmpty) {
                 _showRouteInfo('Regular', regularRouteDistance, regularRouteDuration);
                 _showRouteInfo('Flood', floodRouteDistance, floodRouteDuration);
@@ -402,7 +424,7 @@ class _MapScreenState extends State<MapScreen> {
                 );
               }
             },
-            child: const Icon(Icons.info_outline, color: Colors.white,),
+            child: const Icon(Icons.info_outline, color: Colors.white),
           ),
           const SizedBox(height: 10),
           FloatingActionButton(
