@@ -29,7 +29,7 @@ class _MapScreenState extends State<MapScreen> {
   List<LatLng> regularRoutePoints = [];
   List<LatLng> floodRoutePoints = [];
   List<Marker> markers = [];
-  List<List<LatLng>> avoidRoutePoints = [];
+  List<Map<String, dynamic>> avoidRoutePoints = [];
   List<String> avoidStreetNames = [];
 
   double regularRouteDistance = 0;
@@ -47,15 +47,16 @@ class _MapScreenState extends State<MapScreen> {
 
       if (response['avoid_streets'] != null) {
         List<dynamic> avoidStreets = response['avoid_streets'];
-        List<List<LatLng>> tempRoutePoints = [];
+        List<Map<String, dynamic>> tempRoutePoints = [];
         List<String> tempStreetNames = [];
 
         for (var street in avoidStreets) {
           List<dynamic> coords = street['coords'];
           String streetName = street['name'];
+          int level = street['level'];
 
           List<LatLng> streetPoints = coords.map<LatLng>((coord) => LatLng(coord[1], coord[0])).toList();
-          tempRoutePoints.add(streetPoints);
+          tempRoutePoints.add({'points': streetPoints, 'level': level});
           tempStreetNames.add(streetName);
         }
 
@@ -303,9 +304,23 @@ class _MapScreenState extends State<MapScreen> {
               ),
               if (avoidRoutePoints.isNotEmpty)
                 PolylineLayer(
-                  polylines: avoidRoutePoints
-                      .map((route) => Polyline(points: route, color: Colors.red, strokeWidth: 10))
-                      .toList(),
+                  polylines: avoidRoutePoints.map((route) {
+                    Color color;
+                    switch (route['level']) {
+                      case 1:
+                        color = Colors.yellow;
+                        break;
+                      case 2:
+                        color = Colors.orange;
+                        break;
+                      case 3:
+                        color = Colors.red;
+                        break;
+                      default:
+                        color = Colors.black;
+                    }
+                    return Polyline(points: route['points'], color: color, strokeWidth: 10);
+                  }).toList(),
                 ),
               PolylineLayer(
                 polylines: [

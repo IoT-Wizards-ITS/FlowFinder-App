@@ -1,7 +1,7 @@
 from flask import Flask, jsonify, request
 from openrouteservice import client
 from shapely.geometry import LineString, mapping
-from shapely.ops import cascaded_union
+from shapely.ops import unary_union
 import requests
 from coordinates import avoid_streets  # Assuming this contains the avoid_streets list
 
@@ -45,24 +45,27 @@ def getRoutes():
     else:
         buffer = []
         for coord in avoid_streets_added:
-            coords = coord['coords']
-            route_buffer = LineString(coords).buffer(0.0005)
-            simp_geom = route_buffer.simplify(0.005)
-            buffer.append(simp_geom)
-        union = cascaded_union(buffer)
+            if coord['level'] == 3:
+                coords = coord['coords']
+                route_buffer = LineString(coords).buffer(0.0005)
+                simp_geom = route_buffer.simplify(0.005)
+                buffer.append(simp_geom)
 
-        flood_request = {
-            'coordinates': coordinates,
-            'profile': 'driving-car',
-            'format_out': 'geojson',
-            'preference': 'recommended',
-            'instructions': 'true',
-            'instructions_format': 'text',
-            'language': 'en',
-            'options': {'avoid_polygons': mapping(union)}
-        }
-
-        flood_route = ors.directions(**flood_request)
+        if buffer:
+            union = unary_union(buffer)
+            flood_request = {
+                'coordinates': coordinates,
+                'profile': 'driving-car',
+                'format_out': 'geojson',
+                'preference': 'recommended',
+                'instructions': 'true',
+                'instructions_format': 'text',
+                'language': 'en',
+                'options': {'avoid_polygons': mapping(union)}
+            }
+            flood_route = ors.directions(**flood_request)
+        else:
+            flood_route = regular_route
 
     return jsonify({
         'regular_route': regular_route,
@@ -90,11 +93,12 @@ def getAvoidedStreets():
 
     for sensors_data in parsed_data:
         for ids in avoid_streets:
-            if (int(ids['id']) == int(sensors_data['id'])) and (sensors_data['level'] >= 3):
+            if (int(ids['id']) == int(sensors_data['id'])) and (sensors_data['level'] >= 1):
                 avoid_streets_to_add.append({
                     'name': ids['name'],
                     'id': ids['id'],
-                    'coords': ids['coords']
+                    'coords': ids['coords'],
+                    'level': sensors_data['level']
                 })
 
     return jsonify({
@@ -112,4 +116,4 @@ def home():
     return '<h2 style="text-align:center"> Flask app is running properly </h2>'
 
 if __name__ == '__main__':
-    app.run(debug=True)
+    app.run(debug=False, host='0.0.0.0')
